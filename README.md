@@ -1,16 +1,25 @@
 # Sign in with ChatGPT Spike
 
-A small Windows-first Python reference implementation that signs in to ChatGPT, discovers the signed-in account's available models, streams Responses API output, and executes two explicitly allowlisted local functions.
+A small Windows-first Python reference implementation that signs in to ChatGPT, discovers the signed-in account's available models, streams Responses API output, executes explicitly allowlisted local functions, and verifies renewable OAuth sessions.
+
+## Companion article
+
+This repository contains the reference implementation and sanitized evidence used for the following article:
+
+- [ChatGPTの契約で自作ハーネスからResponses APIを使ってみた](https://note.com/juicy_daphne2674/n/nd5280473dfc0)
+
+The article explains the motivation, the current Sign in with ChatGPT preview limitations, the live verification steps, and the practical differences from a normal metered Responses API integration.
 
 ## What this is
 
-This is a technical spike for the official Sign in with ChatGPT flow and ChatGPT plan usage route. It shows the OAuth/token lifecycle, direct HTTPX requests, streaming event assembly, local function dispatch, and client-managed tool continuation in code that can be read end to end.
+This is a technical spike for the official Sign in with ChatGPT flow and ChatGPT plan usage route. It shows the OAuth/token lifecycle, direct HTTPX requests, streaming event assembly, local function dispatch, client-managed tool continuation, token refresh/rotation, and logout/revocation in code that can be read end to end.
 
 ## What this is not
 
 - A production agent framework, SDK, or Codex clone.
 - A generic shell, filesystem, network, browser, or MCP agent.
-- An FX-LLM integration or a production research runtime.
+- A production research runtime.
+- A claim that Sign in with ChatGPT exposes every feature available through the normal metered OpenAI API.
 
 ## Architecture
 
@@ -75,9 +84,9 @@ On Windows, the active `keyring` backend must be `WinVaultKeyring`. Windows Cred
 - `host-id`: stable `urn:uuid:` host identity; kept across logout.
 - `registration`: issued client ID and a SHA-256 digest of the validated subject; kept across logout so the same registration can be reused and account mixups can be rejected.
 
-The access token, refresh token, ID token, scopes, and expiry are stored together in `%LOCALAPPDATA%\signin-chatgpt-spike\tokens.dpapi`, protected by Windows DPAPI for the current user. The file is outside the repository and contains only the DPAPI-protected blob. This uses the current user's Windows logon protection and cannot be decrypted by another Windows user. Credential Manager is used only for the small identity records because its generic credential blob limit is 2,560 bytes.
+The access token, refresh token, ID token, scopes, and expiry are stored together in `%LOCALAPPDATA%\signin-chatgpt-spike\tokens.dpapi`, protected by Windows DPAPI for the current user. The file is outside the repository and contains only the DPAPI-protected blob. Credential Manager is used only for the small identity records because its generic credential blob limit is 2,560 bytes.
 
-`auth logout` attempts refresh-token revocation and deletes the complete local token file even if remote revocation cannot be confirmed. It preserves the host ID and registration metadata. Run `auth login` to sign in again with that registration. Because logout removes the ID token, reauthentication may show the ChatGPT account selector instead of using `id_token_hint`. To intentionally change the ChatGPT account, remove only the `registration` entry in Windows Credential Manager before signing in again; keep `host-id`.
+`auth logout` attempts refresh-token revocation and deletes the complete local token file even if remote revocation cannot be confirmed. It preserves the host ID and registration metadata. Run `auth login` to sign in again with that registration.
 
 Never paste an authorization code, token, callback URL, cookie, or authorization header into source files, logs, README text, issues, screenshots, or evidence.
 
@@ -89,7 +98,21 @@ List the models exposed to the signed-in account:
 python -m signin_chatgpt_spike.cli models
 ```
 
-The client calls `GET https://api.openai.com/v1/models`, keeps entries with `visibility == "list"`, and preserves the returned order for display. The formal/default target is `gpt-6-luna`; an omitted model always requests that exact slug and fails closed if it is absent. Catalog order never selects a model. The explicit `gpt-5.6-luna` exception is restricted to the ordered `demo-tools` verification path; it is a spike verification model, not a replacement default or an FX-LLM adoption decision. All other model IDs are rejected.
+The client calls `GET https://api.openai.com/v1/models`, keeps entries with `visibility == "list"`, and preserves the returned order for display.
+
+The formal/default target is `gpt-6-luna`; an omitted model always requests that exact slug and fails closed if it is absent. Catalog order never selects a model.
+
+The explicit `gpt-5.6-luna` exception is restricted to the ordered `demo-tools` verification path. It is a spike verification model, not a replacement default. All other model IDs are rejected.
+
+During the final live checks on 2026-09-30, the authenticated account's visible catalog contained:
+
+- `gpt-6-astra`
+- `gpt-5.6-sol`
+- `gpt-5.6-terra`
+- `gpt-5.6-luna`
+- `gpt-5.5`
+
+The raw `/v1/models` payload contained seven entries in total. Two had `visibility == "hide"`. An exact raw-payload search confirmed that `gpt-6-luna` was not present at all for this account at that time, so the local `visibility == "list"` filter was not the reason it was missing.
 
 ## Minimal streaming inference
 
@@ -97,7 +120,9 @@ The client calls `GET https://api.openai.com/v1/models`, keeps entries with `vis
 python -m signin_chatgpt_spike.cli infer
 ```
 
-The fixed prompt asks `gpt-6-luna` to return `SIGNIN_CHATGPT_SPIKE_OK`; the same model is used when `--model` is omitted. You may pass `--model "gpt-6-luna"` explicitly. This command does not accept the verification fallback. It stops if the current catalog does not contain the exact slug. Requests go only to the public `/v1/responses` endpoint and contain `model`, local `input`, `store: false`, `stream: true`, and—when applicable—the declared namespace function tools. The stream is successful only after `response.completed`.
+The fixed prompt asks `gpt-6-luna` to return `SIGNIN_CHATGPT_SPIKE_OK`; the same model is used when `--model` is omitted. This command does not accept the verification fallback. It stops if the current catalog does not contain the exact slug.
+
+Requests go only to the public `/v1/responses` endpoint and contain `model`, local `input`, `store: false`, `stream: true`, and—when applicable—the declared namespace function tools. The stream is successful only after `response.completed`.
 
 The client records event types, final response ID/model, usage counts, request ID, and a small allowlist of numeric rate-limit headers. It never stores or prints raw response bodies or authorization headers. Plan-level quota/accounting is `UNKNOWN` unless OpenAI exposes it directly.
 
@@ -122,6 +147,8 @@ The static `TOOLS` mapping contains exactly:
 
 Both accept only `{}`. The tool loop appends completed output items and function outputs to a small process-local input list. Each call ID is executed at most once. An unknown function, malformed arguments, duplicate call ID, or unsupported output item stops the loop without a generic executor fallback.
 
+A preview response may emit a completed function-call item through `response.output_item.done` even when that item is absent from the final completed response body. The client therefore captures completed output items from the stream and supplements the completed response output before local dispatch.
+
 ## Capability boundary
 
 The model receives only Responses inference and these two local functions:
@@ -131,7 +158,11 @@ research_context_get
 research_budget_get
 ```
 
-No model tool is provided for shell, PowerShell, `cmd.exe`, filesystem access, arbitrary Python, raw TCP, generic HTTP, browser or Computer Use, generic MCP, Git/GitHub, databases, Broker, Protected OOS, arbitrary connectors, or sub-agents. The dispatcher uses exact static name lookup; it has no `eval`, `exec`, reflection, dynamic imports, or shell fallback.
+No model tool is provided for shell, PowerShell, `cmd.exe`, filesystem access, arbitrary Python, raw TCP, generic HTTP, browser or Computer Use, generic MCP, Git/GitHub, databases, Broker, protected evaluation data, arbitrary connectors, or sub-agents.
+
+The dispatcher uses exact static name lookup; it has no `eval`, `exec`, reflection, dynamic imports, or shell fallback.
+
+The purpose is to demonstrate a narrow capability boundary: do not merely instruct the model not to use a capability; omit that capability from the harness entirely.
 
 ## Offline verification
 
@@ -146,64 +177,203 @@ python -m signin_chatgpt_spike.cli auth status
 
 These commands do not send Responses API requests. The unit suite mocks HTTP and uses synthetic credentials marked `EXAMPLE_ONLY_NOT_A_REAL_...`; real requests are reachable only through explicit CLI commands after sign-in.
 
+Final offline verification passed **86 tests**. The focused auth suite passed **16 tests**. Ruff check, Ruff format check, and diff check passed.
+
 ## Explicit live smoke
 
-After `auth login`, run this one command to discover the signed-in account's model catalog, send one fixed streaming inference, exercise one single-tool continuation, and exercise the ordered two-tool loop using `gpt-6-luna`. Omitting `--model` still uses that fixed model; if its exact slug is absent, smoke stops before inference and tool execution with no fallback. `--evidence` writes a sanitized public JSON summary and never includes final response text or credentials.
+After `auth login`, this command discovers the signed-in account's model catalog and exercises the formal/default `gpt-6-luna` path:
 
 ```powershell
 python -m signin_chatgpt_spike.cli smoke --evidence evidence/smoke-result.json
 ```
 
-When `gpt-6-luna` is present, this smoke sequence makes six streamed Responses requests in the expected path: one simple request, two requests for the single-tool continuation, and three requests for the two-tool continuation. It makes one model-list request. Unknown-tool denial is checked locally and does not spend an inference request. No retries are performed. `auth logout` can be run afterward to revoke and clear the local token set. Add `--model "gpt-6-luna"` only after confirming that slug appears in the `models` output.
+If the exact `gpt-6-luna` slug is absent, the current implementation stops before inference and tool execution. It does not silently fall back to another model.
 
-The smoke command returns a nonzero exit code if either tool loop does not complete and uses the formal/default model only. A model may emit tool-call events while a preview response omits items from the completed response body; the client also reads `response.output_item.done` so these completed calls are available to the local dispatcher. A failed smoke is recorded as observed and is not retried automatically.
+An earlier exploratory version did select `models[0].slug`; that produced a historical smoke on `gpt-6-astra`. The corresponding evidence is intentionally retained as observed historical evidence and is not rewritten. The selection bug was fixed so catalog order can no longer choose the runtime model.
+
+## Live verification results
+
+### 1. Initial exploratory live smoke
+
+See [`evidence/smoke-result.json`](evidence/smoke-result.json).
+
+The initial implementation successfully completed browser authentication, model discovery, and simple streaming inference. Because the old selection logic used the first visible catalog entry, that historical run used `gpt-6-astra`.
+
+The simple inference returned `SIGNIN_CHATGPT_SPIKE_OK`.
+
+The smoke also exposed a real tool-loop bug: the stream contained function-call events, but the implementation looked only at the final response body for dispatchable function-call items. The fix was to preserve completed items from `response.output_item.done` and merge them into the effective completed output.
+
+The historical evidence remains unchanged.
+
+### 2. GPT-6 Luna availability check
+
+See [`evidence/gpt-6-luna-tool-loop.json`](evidence/gpt-6-luna-tool-loop.json).
+
+Browser sign-in succeeded, but the exact `gpt-6-luna` slug was absent from the authenticated account's raw model catalog.
+
+Result:
+
+```text
+BLOCKED_MODEL_UNAVAILABLE
+```
+
+This check made:
+
+- Responses requests: 0
+- local tool executions: 0
+
+Logout and remote refresh-token revocation succeeded afterward.
+
+This result is account- and time-specific. It is not a claim that `gpt-6-luna` is unavailable through every OpenAI product or account.
+
+### 3. GPT-5.6 Luna ordered two-tool live verification
+
+See [`evidence/gpt-5.6-luna-tool-loop.json`](evidence/gpt-5.6-luna-tool-loop.json).
+
+The explicit verification model `gpt-5.6-luna` was present in the account-visible catalog.
+
+One ordered tool loop completed successfully:
+
+```text
+Responses request 1
+  -> research_context_get({})
+  -> local execution
+  -> function_call_output
+
+Responses request 2
+  -> research_budget_get({})
+  -> local execution
+  -> function_call_output
+
+Responses request 3
+  -> final response
+```
+
+Observed result:
+
+- all 3 Responses requests used `gpt-5.6-luna`
+- `research_context_get({})`: exactly once
+- `research_budget_get({})`: exactly once
+- tool order: correct
+- duplicate call IDs executed: 0
+- final `response.completed`: present
+- total input tokens: 411
+- total output tokens: 86
+- total tokens: 497
+- elapsed time: 12.459 seconds
+
+The stream included `response.output_item.added`, function-call argument delta/done events, `response.output_item.done`, content/text deltas, and `response.completed`.
+
+Harness viability after this check: **PROCEED**.
+
+GPT-6 Luna availability for this account at verification time: **BLOCKED_MODEL_UNAVAILABLE**.
+
+### 4. Live refresh-token rotation verification
+
+The first live refresh attempt is retained in [`evidence/live-refresh-rotation.json`](evidence/live-refresh-rotation.json).
+
+That attempt ended before refresh because the authorization-code token exchange timed out. No token set was produced and no refresh grant was attempted, so this is not evidence of a refresh failure.
+
+The successful retry is recorded in [`evidence/live-refresh-rotation-retry-1.json`](evidence/live-refresh-rotation-retry-1.json).
+
+The successful live check confirmed:
+
+- one normal browser login established a renewable session
+- the expiry condition was forced only in memory; persisted token state was not modified before refresh
+- `access_token()` triggered exactly one real refresh grant
+- browser reauthentication during refresh: 0
+- access token rotated
+- refresh token rotated
+- ID token rotated
+- required scopes, including `offline_access`, were retained
+- the new TokenSet was persisted through DPAPI
+- the refreshed access token successfully called `GET /v1/models`
+- an immediate second `access_token()` call did not trigger another refresh
+- logout revoked the latest persisted refresh token and removed the local token set
+- host ID and registration metadata were intentionally retained
+
+Result:
+
+```text
+LIVE_REFRESH_VERIFIED
+```
+
+## Final spike status
+
+The following behaviors were verified against the live service on 2026-09-30:
+
+| Capability | Result |
+| --- | --- |
+| Sign in with ChatGPT | PASS |
+| API key not required for this route | PASS |
+| ChatGPT plan usage authorization | PASS |
+| `GET /v1/models` | PASS |
+| Raw model catalog inspection | PASS |
+| Streaming Responses | PASS |
+| `store:false` | PASS |
+| Local function calling | PASS |
+| Function-output continuation | PASS |
+| Ordered two-tool loop | PASS |
+| Duplicate local tool execution | 0 |
+| Access-token refresh | PASS |
+| Access-token rotation | PASS |
+| Refresh-token rotation | PASS |
+| Refreshed-token persistence | PASS |
+| Refresh without browser reauthentication | PASS |
+| Logout / remote revoke | PASS |
+| GPT-5.6 Luna verification path | PASS |
+| GPT-6 Luna on this account at this time | BLOCKED_MODEL_UNAVAILABLE |
+
+Final technical-spike decision: **PROCEED**.
+
+The spike demonstrates that Sign in with ChatGPT plus the Responses API can support a small self-hosted harness with client-managed context and a narrow local function allowlist.
 
 ## Errors and preview limitations
 
 Safe error categories are `authentication`, `transport`, `rate_limit`, `model`, `tool_validation`, `tool_execution`, `timeout`, and `unknown`. CLI errors never include upstream response bodies or authorization data.
 
-The current ChatGPT plan-usage preview requires `store: false`, `stream: true`, and a complete local `input` history on each HTTP request. This spike omits `previous_response_id` and unsupported top-level fields including `background`, `conversation`, `max_output_tokens`, `max_tool_calls`, `metadata`, `moderation`, `multi_agent`, `prompt`, `prompt_cache_retention`, `safety_identifier`, `temperature`, `top_logprobs`, `top_p`, `truncation`, and `user`. Function tools are grouped in a `research` namespace. The preview and available models can change; check the current official documentation before reproducing the experiment.
+The current ChatGPT plan-usage preview requires `store: false`, `stream: true`, and a complete local `input` history on each HTTP request. This spike omits `previous_response_id` and unsupported top-level fields including `background`, `conversation`, `max_output_tokens`, `max_tool_calls`, `metadata`, `moderation`, `multi_agent`, `prompt`, `prompt_cache_retention`, `safety_identifier`, `temperature`, `top_logprobs`, `top_p`, `truncation`, and `user`.
 
-This spike has no automatic retry policy, persistent conversation database, tool sandbox, multi-account UI, cross-process refresh coordination, or production credential lifecycle. The two local tools are fixed mocks. Windows Credential Manager and DPAPI depend on the current Windows user profile. Live model and usage results can differ by account and date.
+The preview does not provide feature parity with the normal metered Responses API. In particular, current preview limitations include unsupported built-in capabilities such as Code Interpreter, image generation, file search, native Computer Use, hosted MCP/connectors, and related features documented by OpenAI.
 
-## Results
+ChatGPT plan usage should not be treated as access to every OpenAI API endpoint. The current open-source Sign in with ChatGPT documentation describes eligible Responses API requests; dedicated APIs such as TTS, transcription, or Images should not be assumed to use the same plan-usage route unless OpenAI explicitly documents that support.
 
-Local verification on 2026-09-30 used Windows 10 and Python 3.11.9. The offline suite passed 55 tests, including OAuth validation with fake responses, DPAPI roundtrip with a fake payload, the explicit tool allowlist, denial of unknown tools, Responses request-contract checks, and regressions for streamed completed output items. Ruff checks passed.
+The preview and available models can change. Check the current official documentation before reproducing the experiment.
 
-The browser sign-in succeeded. The CLI reported `authenticated: true`, `refresh_available: true`, and `plan_usage_enabled: true`; it printed no token values. Logout then removed the token set and remote refresh-token revocation was confirmed. Stable host identity and registration metadata remain stored.
+## Deliberately out of scope
 
-Model discovery succeeded and returned these account-visible IDs: `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-5.5`. `gpt-6-luna` was not listed. The smoke selected `gpt-6-astra`. Its fixed inference returned `SIGNIN_CHATGPT_SPIKE_OK` over streaming. The simple response used 27 tokens (16 input, 11 output); the smoke total across three Responses requests was 209 tokens. Response IDs were captured in the sanitized evidence, while request ID and rate-limit metadata were not available.
+This spike has no:
 
-That earlier exploratory smoke selected the first visible model, `gpt-6-astra`. Its evidence remains historical and unchanged. Current live selection ignores catalog order and is pinned to `gpt-6-luna`.
+- automatic production retry policy
+- persistent conversation database
+- generic tool sandbox
+- multi-account UI
+- cross-process refresh coordination
+- production credential lifecycle
+- large-history management
+- production observability
+- state-changing tool idempotency framework
 
-The live smoke observed function-call argument stream events, but the completed response body did not deliver a function-call item to the local tool loop. Therefore neither local tool was dispatched and both tool-loop checks failed. The client now supplements the completed body's output with final items from `response.output_item.done`, following the documented streaming event contract. The new offline regression passed, but the live smoke was not repeated; live single-tool continuation and the ordered two-tool loop remain unverified. The unknown-tool denial was a local allowlist check and passed. See the sanitized live record at [`evidence/smoke-result.json`](evidence/smoke-result.json). The earlier authentication attempts are retained in [`evidence/auth-attempt.json`](evidence/auth-attempt.json).
-
-Plan usage accounting and rate-limit metadata remain `UNKNOWN` because this smoke did not expose those values. The account-visible catalog did not include `gpt-6-luna`.
-
-Final runtime decision: **PROCEED_WITH_GAPS**. Authentication, discovery, inference, and streaming worked. Before considering FX-LLM adoption, perform a separately authorized live smoke against the event-item fix, confirm single and ordered multi-tool continuation, and assess the preview route's stability and usage limits.
-
-### GPT-6 Luna live tool-loop recheck (2026-09-30)
-
-Sign-in succeeded with refresh and plan usage enabled, but the account-visible catalog did not contain the exact `gpt-6-luna` slug. Per the stop rule, this run made zero Responses requests and executed zero local tools; its result is **BLOCKED_MODEL_UNAVAILABLE**. Logout removed the local token set, remote refresh-token revocation was confirmed, host ID and registration metadata remain present, and the final auth status is unauthenticated. The ordered live tool loop remains unverified. See the separate sanitized record at [`evidence/gpt-6-luna-tool-loop.json`](evidence/gpt-6-luna-tool-loop.json).
-
-### GPT-5.6 Luna live ordered tool-loop verification (2026-09-30)
-
-The account-visible catalog contained `gpt-5.6-luna` and still did not contain `gpt-6-luna`. An explicit `--model gpt-5.6-luna` ran the ordered tool loop once: all three Responses requests used that model, `research_context_get({})` ran once and continued successfully, then `research_budget_get({})` ran once and continued successfully. The final request reached `response.completed` with a final response. The stream included `response.output_item.added`, function-call argument delta and done events, and `response.output_item.done`; the completed function-call items reached the dispatcher in the required order. No duplicate executions occurred. The run used 497 tokens and took 12.459 seconds. Sanitized response IDs and event types are in [`evidence/gpt-5.6-luna-tool-loop.json`](evidence/gpt-5.6-luna-tool-loop.json).
-
-The formal/default target remains `gpt-6-luna`; `gpt-5.6-luna` is allowed only as an explicit spike verification model. This result does not adopt GPT-5.6 Luna for FX-LLM. Logout removed the local token file, remote refresh-token revocation was confirmed, host ID and registration metadata remained present, and final auth status is unauthenticated.
-
-Harness viability: **PROCEED**. GPT-6 Luna availability: **BLOCKED_MODEL_UNAVAILABLE**.
-
-### Live refresh rotation verification (2026-09-30)
-
-A single-session live check confirmed that access-token expiry triggers the refresh grant without browser sign-in, both access and refresh tokens rotate, the new token set is persisted through DPAPI, and the refreshed access token retrieves a non-empty account model catalog. The expiry condition was forced only in an in-memory wrapper; the persisted expiry was not changed. Multi-process refresh serialization was outside this check and is planned for verification in FX-LLM. See the sanitized record at [`evidence/live-refresh-rotation-retry-1.json`](evidence/live-refresh-rotation-retry-1.json).
+Those concerns belong in the real runtime that adopts this pattern rather than in this small reference implementation.
 
 ## Why this exists
 
-This experiment informs whether a restricted Responses-based research runtime is worth designing separately for FX-LLM. It is not intended to be copied directly into that production codebase.
+The purpose of this repository is to verify the technical building blocks behind a restricted Responses-based runtime:
+
+- user authentication through Sign in with ChatGPT
+- ChatGPT plan usage
+- client-controlled context
+- explicit model selection
+- streaming Responses
+- explicit local function tools
+- renewable OAuth sessions
+- a narrow capability boundary
+
+It is intended as a readable reference and as the source code/evidence companion to the note article linked above.
 
 ## Official references
 
+- [Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source)
 - [Sign in with ChatGPT: registration and sessions](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions)
 - [Sign in with ChatGPT: models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)
 - [Sign in with ChatGPT: preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)
