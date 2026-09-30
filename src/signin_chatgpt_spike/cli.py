@@ -22,6 +22,7 @@ from .models import ModelInfo, ResponseSummary
 from .tool_loop import ToolLoopResult, run_tool_loop
 from .tools import ToolDispatchError, dispatch_tool
 
+DEFAULT_MODEL_ID = "gpt-6-luna"
 SIMPLE_PROMPT = "Return exactly:\nSIGNIN_CHATGPT_SPIKE_OK"
 SIMPLE_EXPECTED_TEXT = "SIGNIN_CHATGPT_SPIKE_OK"
 SINGLE_TOOL_PROMPT = "Call research_context_get once. Then summarize the returned research context."
@@ -55,15 +56,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     commands.add_parser("models", help="List models visible to the signed-in account.")
     infer_parser = commands.add_parser("infer", help="Run one fixed streaming inference.")
-    infer_parser.add_argument("--model", help="An exact model slug returned by the models command.")
+    infer_parser.add_argument(
+        "--model", help=f"Exact pinned model slug (only {DEFAULT_MODEL_ID} is supported)."
+    )
 
     demo_parser = commands.add_parser("demo-tools", help="Run the two-tool local research demo.")
-    demo_parser.add_argument("--model", help="An exact model slug returned by the models command.")
+    demo_parser.add_argument(
+        "--model", help=f"Exact pinned model slug (only {DEFAULT_MODEL_ID} is supported)."
+    )
 
     smoke_parser = commands.add_parser(
         "smoke", help="Run the explicit live inference and local tool smoke sequence."
     )
-    smoke_parser.add_argument("--model", help="An exact model slug returned by the models command.")
+    smoke_parser.add_argument(
+        "--model", help=f"Exact pinned model slug (only {DEFAULT_MODEL_ID} is supported)."
+    )
     smoke_parser.add_argument(
         "--evidence",
         type=Path,
@@ -142,14 +149,15 @@ def _discover_models(client: ResponsesClient, access_token: str) -> list[ModelIn
 
 def _select_model(models: list[ModelInfo], requested_model: str | None) -> str:
     available = {item.slug for item in models}
-    if requested_model is not None:
-        if requested_model not in available:
-            raise ResponsesError(
-                "The selected model is not present in the account model catalog.",
-                category="model",
-            )
-        return requested_model
-    return models[0].slug
+    if requested_model is not None and requested_model != DEFAULT_MODEL_ID:
+        raise ResponsesError(
+            f"This CLI only supports the pinned model {DEFAULT_MODEL_ID}.", category="model"
+        )
+    if DEFAULT_MODEL_ID not in available:
+        raise ResponsesError(
+            "The pinned model is not present in the account model catalog.", category="model"
+        )
+    return DEFAULT_MODEL_ID
 
 
 def _run_models() -> int:

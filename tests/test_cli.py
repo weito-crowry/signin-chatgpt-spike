@@ -49,16 +49,21 @@ class FakeAuthManager:
 
 
 class FakeResponsesClient:
-    def __init__(self, responses: list[object]) -> None:
+    def __init__(self, responses: list[object], model_catalog=None) -> None:
         self.responses = responses
         self.requests: list[dict[str, object]] = []
+        self.model_catalog = (
+            model_catalog
+            if model_catalog is not None
+            else [
+                load_module("models").ModelInfo(EXAMPLE_MODEL, "GPT-6 Luna"),
+                load_module("models").ModelInfo("gpt-6.1-sol", "GPT-6.1 Sol"),
+            ]
+        )
 
     def list_models(self, access_token: str):
         assert access_token == EXAMPLE_TOKEN
-        return [
-            load_module("models").ModelInfo(EXAMPLE_MODEL, "GPT-6 Luna"),
-            load_module("models").ModelInfo("gpt-6.1-sol", "GPT-6.1 Sol"),
-        ]
+        return self.model_catalog
 
     def stream_response(self, access_token, model, input_items, tools=None):
         self.requests.append({"input": list(input_items), "tools": tools, "model": model})
@@ -76,6 +81,91 @@ def tool_call(call_id: str, name: str) -> dict[str, object]:
         "arguments": "{}",
         "status": "completed",
     }
+
+
+def model_info(slug: str):
+    return load_module("models").ModelInfo(slug, slug)
+
+
+@pytest.mark.parametrize(
+    "catalog",
+    [
+        ["gpt-6-astra", "gpt-6-luna", "gpt-5.6-luna"],
+        ["gpt-5.6-luna", "gpt-6-luna", "gpt-6-astra"],
+        ["gpt-6-astra", "gpt-5.6-sol", "gpt-6-luna"],
+        ["gpt-6-luna", "gpt-5.6-sol", "gpt-6-astra"],
+    ],
+)
+def test_unspecified_model_is_exact_luna_independent_of_catalog_order(catalog) -> None:
+    cli = load_module("cli")
+
+    assert cli._select_model([model_info(slug) for slug in catalog], None) == EXAMPLE_MODEL
+
+
+def test_explicit_luna_is_allowed() -> None:
+    cli = load_module("cli")
+
+    assert cli._select_model([model_info(EXAMPLE_MODEL)], EXAMPLE_MODEL) == EXAMPLE_MODEL
+
+
+@pytest.mark.parametrize("requested_model", ["gpt-6-astra", "gpt-5.6-luna"])
+def test_explicit_non_luna_models_are_rejected_even_when_available(requested_model) -> None:
+    cli = load_module("cli")
+    errors = load_module("errors")
+
+    with pytest.raises(errors.ResponsesError) as error:
+        cli._select_model([model_info(requested_model)], requested_model)
+
+    assert error.value.category == "model"
+
+
+@pytest.mark.parametrize(
+    "catalog",
+    [
+        ["gpt-6-astra", "gpt-5.6-luna", "gpt-5.6-sol"],
+        [],
+    ],
+)
+def test_missing_luna_or_empty_catalog_is_a_model_error(catalog) -> None:
+    cli = load_module("cli")
+    errors = load_module("errors")
+
+    with pytest.raises(errors.ResponsesError) as error:
+        cli._select_model([model_info(slug) for slug in catalog], None)
+
+    assert error.value.category == "model"
+
+
+@pytest.mark.parametrize("command", ["infer", "demo-tools", "smoke"])
+def test_live_commands_fail_closed_without_luna_before_any_inference(
+    command, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli = load_module("cli")
+    catalog = [model_info(slug) for slug in ("gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna")]
+    client = FakeResponsesClient([], model_catalog=catalog)
+    monkeypatch.setattr(cli, "create_auth_manager", lambda: FakeAuthManager())
+    monkeypatch.setattr(cli, "create_responses_client", lambda: client)
+
+    assert cli.main([command]) != 0
+    assert client.requests == []
+    assert "category=model" in capsys.readouterr().err
+
+
+def test_models_command_preserves_catalog_display_order(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli = load_module("cli")
+    catalog = [model_info(slug) for slug in ("gpt-6-astra", "gpt-5.6-sol", "gpt-6-luna")]
+    client = FakeResponsesClient([], model_catalog=catalog)
+    monkeypatch.setattr(cli, "create_auth_manager", lambda: FakeAuthManager())
+    monkeypatch.setattr(cli, "create_responses_client", lambda: client)
+
+    assert cli.main(["models"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "gpt-6-astra\tgpt-6-astra",
+        "gpt-5.6-sol\tgpt-5.6-sol",
+        "gpt-6-luna\tgpt-6-luna",
+    ]
 
 
 def test_auth_status_is_safe_and_does_not_create_responses_client(

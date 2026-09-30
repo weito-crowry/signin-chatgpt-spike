@@ -89,7 +89,7 @@ List the models exposed to the signed-in account:
 python -m signin_chatgpt_spike.cli models
 ```
 
-The client calls `GET https://api.openai.com/v1/models`, keeps entries with `visibility == "list"`, and preserves the returned order. The exact `slug` is the model ID accepted by inference. The CLI validates an optional `--model` against the latest account catalog; without it, it selects the first visible catalog entry. It does not hard-code a model ID.
+The client calls `GET https://api.openai.com/v1/models`, keeps entries with `visibility == "list"`, and preserves the returned order for display. Live `infer`, `demo-tools`, and `smoke` commands use the exact fixed model ID `gpt-6-luna`, independent of catalog order. The account catalog must contain that exact slug or the command stops with a model error before sending a Responses request or executing a tool. `--model` is optional; when supplied, only `gpt-6-luna` is accepted. Other model IDs are rejected. Use `models` to observe the account-visible catalog; it is not used to choose a live model.
 
 ## Minimal streaming inference
 
@@ -97,7 +97,7 @@ The client calls `GET https://api.openai.com/v1/models`, keeps entries with `vis
 python -m signin_chatgpt_spike.cli infer
 ```
 
-The fixed prompt asks the model to return `SIGNIN_CHATGPT_SPIKE_OK`. An optional `--model "gpt-6-luna"` selects that exact slug only if the current catalog includes it. Requests go only to the public `/v1/responses` endpoint and contain `model`, local `input`, `store: false`, `stream: true`, and—when applicable—the declared namespace function tools. The stream is successful only after `response.completed`.
+The fixed prompt asks `gpt-6-luna` to return `SIGNIN_CHATGPT_SPIKE_OK`; the same model is used when `--model` is omitted. You may pass `--model "gpt-6-luna"` explicitly, but no other model is supported. The command stops if the current catalog does not contain the exact slug. Requests go only to the public `/v1/responses` endpoint and contain `model`, local `input`, `store: false`, `stream: true`, and—when applicable—the declared namespace function tools. The stream is successful only after `response.completed`.
 
 The client records event types, final response ID/model, usage counts, request ID, and a small allowlist of numeric rate-limit headers. It never stores or prints raw response bodies or authorization headers. Plan-level quota/accounting is `UNKNOWN` unless OpenAI exposes it directly.
 
@@ -138,13 +138,13 @@ These commands do not send Responses API requests. The unit suite mocks HTTP and
 
 ## Explicit live smoke
 
-After `auth login`, run this one command to discover the signed-in account's model catalog, send one fixed streaming inference, exercise one single-tool continuation, and exercise the ordered two-tool loop. Omitting `--model` selects the first account-visible model. `--evidence` writes a sanitized public JSON summary and never includes final response text or credentials.
+After `auth login`, run this one command to discover the signed-in account's model catalog, send one fixed streaming inference, exercise one single-tool continuation, and exercise the ordered two-tool loop using `gpt-6-luna`. Omitting `--model` still uses that fixed model; if its exact slug is absent, smoke stops before inference and tool execution with no fallback. `--evidence` writes a sanitized public JSON summary and never includes final response text or credentials.
 
 ```powershell
 python -m signin_chatgpt_spike.cli smoke --evidence evidence/smoke-result.json
 ```
 
-This smoke sequence makes six streamed Responses requests in the expected path: one simple request, two requests for the single-tool continuation, and three requests for the two-tool continuation. It makes one model-list request. Unknown-tool denial is checked locally and does not spend an inference request. No retries are performed. `auth logout` can be run afterward to revoke and clear the local token set. Add `--model "gpt-6-luna"` only after confirming that slug appears in the `models` output.
+When `gpt-6-luna` is present, this smoke sequence makes six streamed Responses requests in the expected path: one simple request, two requests for the single-tool continuation, and three requests for the two-tool continuation. It makes one model-list request. Unknown-tool denial is checked locally and does not spend an inference request. No retries are performed. `auth logout` can be run afterward to revoke and clear the local token set. Add `--model "gpt-6-luna"` only after confirming that slug appears in the `models` output.
 
 The smoke command returns a nonzero exit code if either tool loop does not complete. A model may emit tool-call events while a preview response omits items from the completed response body; the client also reads `response.output_item.done` so these completed calls are available to the local dispatcher. A failed smoke is recorded as observed and is not retried automatically.
 
@@ -163,6 +163,8 @@ Local verification on 2026-09-30 used Windows 10 and Python 3.11.9. The offline 
 The browser sign-in succeeded. The CLI reported `authenticated: true`, `refresh_available: true`, and `plan_usage_enabled: true`; it printed no token values. Logout then removed the token set and remote refresh-token revocation was confirmed. Stable host identity and registration metadata remain stored.
 
 Model discovery succeeded and returned these account-visible IDs: `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-5.5`. `gpt-6-luna` was not listed. The smoke selected `gpt-6-astra`. Its fixed inference returned `SIGNIN_CHATGPT_SPIKE_OK` over streaming. The simple response used 27 tokens (16 input, 11 output); the smoke total across three Responses requests was 209 tokens. Response IDs were captured in the sanitized evidence, while request ID and rate-limit metadata were not available.
+
+That earlier exploratory smoke selected the first visible model, `gpt-6-astra`. Its evidence remains historical and unchanged. Current live selection ignores catalog order and is pinned to `gpt-6-luna`.
 
 The live smoke observed function-call argument stream events, but the completed response body did not deliver a function-call item to the local tool loop. Therefore neither local tool was dispatched and both tool-loop checks failed. The client now supplements the completed body's output with final items from `response.output_item.done`, following the documented streaming event contract. The new offline regression passed, but the live smoke was not repeated; live single-tool continuation and the ordered two-tool loop remain unverified. The unknown-tool denial was a local allowlist check and passed. See the sanitized live record at [`evidence/smoke-result.json`](evidence/smoke-result.json). The earlier authentication attempts are retained in [`evidence/auth-attempt.json`](evidence/auth-attempt.json).
 
