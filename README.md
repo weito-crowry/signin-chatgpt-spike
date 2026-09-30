@@ -89,7 +89,7 @@ List the models exposed to the signed-in account:
 python -m signin_chatgpt_spike.cli models
 ```
 
-The client calls `GET https://api.openai.com/v1/models`, keeps entries with `visibility == "list"`, and preserves the returned order for display. Live `infer`, `demo-tools`, and `smoke` commands use the exact fixed model ID `gpt-6-luna`, independent of catalog order. The account catalog must contain that exact slug or the command stops with a model error before sending a Responses request or executing a tool. `--model` is optional; when supplied, only `gpt-6-luna` is accepted. Other model IDs are rejected. Use `models` to observe the account-visible catalog; it is not used to choose a live model.
+The client calls `GET https://api.openai.com/v1/models`, keeps entries with `visibility == "list"`, and preserves the returned order for display. The formal/default target is `gpt-6-luna`; an omitted model always requests that exact slug and fails closed if it is absent. Catalog order never selects a model. The explicit `gpt-5.6-luna` exception is restricted to the ordered `demo-tools` verification path; it is a spike verification model, not a replacement default or an FX-LLM adoption decision. All other model IDs are rejected.
 
 ## Minimal streaming inference
 
@@ -97,7 +97,7 @@ The client calls `GET https://api.openai.com/v1/models`, keeps entries with `vis
 python -m signin_chatgpt_spike.cli infer
 ```
 
-The fixed prompt asks `gpt-6-luna` to return `SIGNIN_CHATGPT_SPIKE_OK`; the same model is used when `--model` is omitted. You may pass `--model "gpt-6-luna"` explicitly, but no other model is supported. The command stops if the current catalog does not contain the exact slug. Requests go only to the public `/v1/responses` endpoint and contain `model`, local `input`, `store: false`, `stream: true`, and—when applicable—the declared namespace function tools. The stream is successful only after `response.completed`.
+The fixed prompt asks `gpt-6-luna` to return `SIGNIN_CHATGPT_SPIKE_OK`; the same model is used when `--model` is omitted. You may pass `--model "gpt-6-luna"` explicitly. This command does not accept the verification fallback. It stops if the current catalog does not contain the exact slug. Requests go only to the public `/v1/responses` endpoint and contain `model`, local `input`, `store: false`, `stream: true`, and—when applicable—the declared namespace function tools. The stream is successful only after `response.completed`.
 
 The client records event types, final response ID/model, usage counts, request ID, and a small allowlist of numeric rate-limit headers. It never stores or prints raw response bodies or authorization headers. Plan-level quota/accounting is `UNKNOWN` unless OpenAI exposes it directly.
 
@@ -106,6 +106,14 @@ The client records event types, final response ID/model, usage counts, request I
 ```powershell
 python -m signin_chatgpt_spike.cli demo-tools
 ```
+
+For a verification-only run of the ordered two-tool loop on an account-visible `gpt-5.6-luna`, explicitly select that slug and write sanitized evidence:
+
+```powershell
+python -m signin_chatgpt_spike.cli demo-tools --model gpt-5.6-luna --evidence evidence/gpt-5.6-luna-tool-loop.json
+```
+
+This command performs model discovery and one ordered tool loop. If `gpt-5.6-luna` is absent, it records `BLOCKED_VERIFICATION_MODEL_UNAVAILABLE` and sends no Responses request. The formal/default model remains `gpt-6-luna`; this fallback is limited to protocol verification.
 
 The static `TOOLS` mapping contains exactly:
 
@@ -130,6 +138,8 @@ No model tool is provided for shell, PowerShell, `cmd.exe`, filesystem access, a
 ```powershell
 python -m pytest
 ruff check .
+ruff format --check .
+git diff --check
 python -m signin_chatgpt_spike.cli --help
 python -m signin_chatgpt_spike.cli auth status
 ```
@@ -146,7 +156,7 @@ python -m signin_chatgpt_spike.cli smoke --evidence evidence/smoke-result.json
 
 When `gpt-6-luna` is present, this smoke sequence makes six streamed Responses requests in the expected path: one simple request, two requests for the single-tool continuation, and three requests for the two-tool continuation. It makes one model-list request. Unknown-tool denial is checked locally and does not spend an inference request. No retries are performed. `auth logout` can be run afterward to revoke and clear the local token set. Add `--model "gpt-6-luna"` only after confirming that slug appears in the `models` output.
 
-The smoke command returns a nonzero exit code if either tool loop does not complete. A model may emit tool-call events while a preview response omits items from the completed response body; the client also reads `response.output_item.done` so these completed calls are available to the local dispatcher. A failed smoke is recorded as observed and is not retried automatically.
+The smoke command returns a nonzero exit code if either tool loop does not complete and uses the formal/default model only. A model may emit tool-call events while a preview response omits items from the completed response body; the client also reads `response.output_item.done` so these completed calls are available to the local dispatcher. A failed smoke is recorded as observed and is not retried automatically.
 
 ## Errors and preview limitations
 
@@ -175,6 +185,14 @@ Final runtime decision: **PROCEED_WITH_GAPS**. Authentication, discovery, infere
 ### GPT-6 Luna live tool-loop recheck (2026-09-30)
 
 Sign-in succeeded with refresh and plan usage enabled, but the account-visible catalog did not contain the exact `gpt-6-luna` slug. Per the stop rule, this run made zero Responses requests and executed zero local tools; its result is **BLOCKED_MODEL_UNAVAILABLE**. Logout removed the local token set, remote refresh-token revocation was confirmed, host ID and registration metadata remain present, and the final auth status is unauthenticated. The ordered live tool loop remains unverified. See the separate sanitized record at [`evidence/gpt-6-luna-tool-loop.json`](evidence/gpt-6-luna-tool-loop.json).
+
+### GPT-5.6 Luna live ordered tool-loop verification (2026-09-30)
+
+The account-visible catalog contained `gpt-5.6-luna` and still did not contain `gpt-6-luna`. An explicit `--model gpt-5.6-luna` ran the ordered tool loop once: all three Responses requests used that model, `research_context_get({})` ran once and continued successfully, then `research_budget_get({})` ran once and continued successfully. The final request reached `response.completed` with a final response. The stream included `response.output_item.added`, function-call argument delta and done events, and `response.output_item.done`; the completed function-call items reached the dispatcher in the required order. No duplicate executions occurred. The run used 497 tokens and took 12.459 seconds. Sanitized response IDs and event types are in [`evidence/gpt-5.6-luna-tool-loop.json`](evidence/gpt-5.6-luna-tool-loop.json).
+
+The formal/default target remains `gpt-6-luna`; `gpt-5.6-luna` is allowed only as an explicit spike verification model. This result does not adopt GPT-5.6 Luna for FX-LLM. Logout removed the local token file, remote refresh-token revocation was confirmed, host ID and registration metadata remained present, and final auth status is unauthenticated.
+
+Harness viability: **PROCEED**. GPT-6 Luna availability: **BLOCKED_MODEL_UNAVAILABLE**.
 
 ## Why this exists
 

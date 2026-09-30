@@ -98,6 +98,7 @@ class ResponsesClient:
         event_types: list[str] = []
         text_parts: list[str] = []
         streamed_output_items: dict[int, dict[str, Any]] = {}
+        streamed_function_call_item_done_count = 0
         completed: dict[str, Any] | None = None
 
         try:
@@ -126,6 +127,8 @@ class ResponsesClient:
                         if type(output_index) is not int or not isinstance(item, dict):
                             raise ResponsesError("OpenAI sent an invalid completed output item.")
                         streamed_output_items[output_index] = item
+                        if item.get("type") == "function_call":
+                            streamed_function_call_item_done_count += 1
                     elif event_type == "response.failed":
                         raise ResponsesError(
                             "The Responses request failed.",
@@ -144,16 +147,25 @@ class ResponsesClient:
                     raise ResponsesError(
                         "The stream ended before response.completed.", category="transport"
                     )
-        except ResponsesError:
+        except ResponsesError as error:
+            error.observed_event_types = tuple(event_types)
             raise
         except httpx.TimeoutException:
-            raise ResponsesError("The Responses stream timed out.", category="timeout") from None
+            raise ResponsesError(
+                "The Responses stream timed out.",
+                category="timeout",
+                observed_event_types=tuple(event_types),
+            ) from None
         except httpx.HTTPError:
             raise ResponsesError(
-                "The Responses stream was interrupted.", category="transport"
+                "The Responses stream was interrupted.",
+                category="transport",
+                observed_event_types=tuple(event_types),
             ) from None
         except (UnicodeDecodeError, ValueError):
-            raise ResponsesError("OpenAI sent a malformed event stream.") from None
+            raise ResponsesError(
+                "OpenAI sent a malformed event stream.", observed_event_types=tuple(event_types)
+            ) from None
 
         output_items = completed.get("output", [])
         if not isinstance(output_items, list) or any(
@@ -183,6 +195,7 @@ class ResponsesClient:
             event_types=tuple(event_types),
             request_id=request_id,
             rate_limit_metadata=rate_limit_metadata,
+            streamed_function_call_item_done_count=streamed_function_call_item_done_count,
         )
 
     @staticmethod

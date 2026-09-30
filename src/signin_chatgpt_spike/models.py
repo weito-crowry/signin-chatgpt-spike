@@ -29,6 +29,7 @@ class ResponseSummary:
     event_types: tuple[str, ...]
     request_id: str | None
     rate_limit_metadata: dict[str, str]
+    streamed_function_call_item_done_count: int = 0
 
 
 @dataclass(frozen=True)

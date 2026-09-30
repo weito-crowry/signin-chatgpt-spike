@@ -39,9 +39,12 @@ def response_summary(
         text=text,
         output_items=tuple(output_items),
         usage=models.UsageSummary(input_tokens=1, output_tokens=1, total_tokens=2),
-        event_types=("response.completed",),
+        event_types=("response.output_item.done", "response.completed"),
         request_id=None,
         rate_limit_metadata={},
+        streamed_function_call_item_done_count=sum(
+            item.get("type") == "function_call" for item in output_items
+        ),
     )
 
 
@@ -105,6 +108,7 @@ def test_tool_loop_executes_one_call_then_continues_to_final_text() -> None:
 
 def test_multi_tool_loop_keeps_history_and_executes_context_before_budget() -> None:
     tool_loop = load_module("tool_loop")
+    trace = tool_loop.ToolLoopTrace()
     client = FakeResponsesClient(
         responses=[
             response_summary("", function_call("call_context", "research_context_get")),
@@ -119,6 +123,7 @@ def test_multi_tool_loop_keeps_history_and_executes_context_before_budget() -> N
         EXAMPLE_TOKEN,
         EXAMPLE_MODEL,
         "Check the context and remaining budget.",
+        trace=trace,
     )
 
     assert result.tool_call_order == ("research_context_get", "research_budget_get")
@@ -141,6 +146,15 @@ def test_multi_tool_loop_keeps_history_and_executes_context_before_budget() -> N
         "function_call",
         "function_call_output",
     ]
+    assert trace.request_count == 3
+    assert trace.observed_tool_call_order == ["research_context_get", "research_budget_get"]
+    assert trace.tool_call_order == ["research_context_get", "research_budget_get"]
+    assert trace.tool_arguments_exactly_empty_object == [True, True]
+    assert trace.tool_execution_counts == {"research_context_get": 1, "research_budget_get": 1}
+    assert trace.duplicate_tool_call_count == 0
+    assert trace.function_output_continuations == [True, True]
+    assert trace.responses == list(result.responses)
+    assert trace.phase == "complete"
 
 
 @pytest.mark.parametrize(
@@ -155,6 +169,7 @@ def test_duplicate_call_id_never_executes_the_local_tool_twice(
 ) -> None:
     tool_loop = load_module("tool_loop")
     tools = load_module("tools")
+    trace = tool_loop.ToolLoopTrace()
     calls: list[str] = []
     original = tools.TOOLS["research_context_get"]
 
@@ -173,12 +188,17 @@ def test_duplicate_call_id_never_executes_the_local_tool_twice(
 
     try:
         with pytest.raises(tool_loop.ToolLoopError) as raised:
-            tool_loop.run_tool_loop(client, EXAMPLE_TOKEN, EXAMPLE_MODEL, "Read context.")
+            tool_loop.run_tool_loop(
+                client, EXAMPLE_TOKEN, EXAMPLE_MODEL, "Read context.", trace=trace
+            )
     finally:
         tools.TOOLS["research_context_get"] = original
 
     assert raised.value.category == "tool_validation"
     assert calls == ["context"]
+    assert trace.tool_execution_counts == {"research_context_get": 1, "research_budget_get": 0}
+    assert trace.duplicate_tool_call_count == 1
+    assert trace.function_output_continuations == [True]
 
 
 def test_unknown_function_call_stops_before_tool_execution() -> None:
@@ -193,6 +213,29 @@ def test_unknown_function_call_stops_before_tool_execution() -> None:
 
     assert raised.value.category == "tool_validation"
     assert len(client.requests) == 1
+
+
+def test_tool_loop_trace_keeps_event_names_observed_before_a_stream_failure() -> None:
+    tool_loop = load_module("tool_loop")
+    errors = load_module("errors")
+    trace = tool_loop.ToolLoopTrace()
+
+    class FailingResponsesClient:
+        def stream_response(self, access_token, model, input_items, tools=None):
+            raise errors.ResponsesError(
+                "The stream failed safely.",
+                category="transport",
+                observed_event_types=("response.created", "response.output_item.added"),
+            )
+
+    with pytest.raises(errors.ResponsesError):
+        tool_loop.run_tool_loop(
+            FailingResponsesClient(), EXAMPLE_TOKEN, EXAMPLE_MODEL, "Read context.", trace=trace
+        )
+
+    assert trace.request_count == 1
+    assert trace.requested_models == [EXAMPLE_MODEL]
+    assert trace.partial_event_types == ["response.created", "response.output_item.added"]
 
 
 @pytest.mark.parametrize(

@@ -16,17 +16,29 @@ def load_module(name: str):
     return importlib.import_module(qualified_name)
 
 
-def summary(text: str = "", *items: dict[str, object]):
+def summary(
+    text: str = "",
+    *items: dict[str, object],
+    event_types: tuple[str, ...] | None = None,
+    response_id: str = "resp_EXAMPLE_ONLY_NOT_A_REAL_ID",
+    request_id: str = "req_EXAMPLE_ONLY_NOT_A_REAL_ID",
+):
     models = load_module("models")
     return models.ResponseSummary(
-        response_id="resp_EXAMPLE_ONLY_NOT_A_REAL_ID",
+        response_id=response_id,
         model=EXAMPLE_MODEL,
         text=text,
         output_items=tuple(items),
         usage=models.UsageSummary(input_tokens=2, output_tokens=1, total_tokens=3),
-        event_types=("response.created", "response.output_text.delta", "response.completed"),
-        request_id="req_EXAMPLE_ONLY_NOT_A_REAL_ID",
+        event_types=event_types
+        or ("response.created", "response.output_text.delta", "response.completed"),
+        request_id=request_id,
         rate_limit_metadata={"x-ratelimit-remaining-requests": "99"},
+        streamed_function_call_item_done_count=(
+            sum(item.get("type") == "function_call" for item in items)
+            if event_types is not None and "response.output_item.done" in event_types
+            else 0
+        ),
     )
 
 
@@ -102,14 +114,58 @@ def test_unspecified_model_is_exact_luna_independent_of_catalog_order(catalog) -
     assert cli._select_model([model_info(slug) for slug in catalog], None) == EXAMPLE_MODEL
 
 
+def test_unspecified_model_does_not_fall_back_when_default_is_unavailable() -> None:
+    cli = load_module("cli")
+    errors = load_module("errors")
+
+    with pytest.raises(errors.ResponsesError) as error:
+        cli._select_model([model_info("gpt-5.6-luna"), model_info("gpt-6-astra")], None)
+
+    assert error.value.category == "model"
+
+
 def test_explicit_luna_is_allowed() -> None:
     cli = load_module("cli")
 
     assert cli._select_model([model_info(EXAMPLE_MODEL)], EXAMPLE_MODEL) == EXAMPLE_MODEL
 
 
-@pytest.mark.parametrize("requested_model", ["gpt-6-astra", "gpt-5.6-luna"])
-def test_explicit_non_luna_models_are_rejected_even_when_available(requested_model) -> None:
+def test_explicit_default_luna_is_rejected_when_unavailable() -> None:
+    cli = load_module("cli")
+    errors = load_module("errors")
+
+    with pytest.raises(errors.ResponsesError) as error:
+        cli._select_model([model_info("gpt-5.6-luna")], EXAMPLE_MODEL)
+
+    assert error.value.category == "model"
+
+
+def test_explicit_verification_luna_is_allowed_when_available() -> None:
+    cli = load_module("cli")
+
+    assert (
+        cli._select_model(
+            [model_info("gpt-5.6-luna")], "gpt-5.6-luna", allow_verification_model=True
+        )
+        == "gpt-5.6-luna"
+    )
+
+
+def test_explicit_verification_luna_is_rejected_when_unavailable() -> None:
+    cli = load_module("cli")
+    errors = load_module("errors")
+
+    with pytest.raises(errors.ResponsesError) as error:
+        cli._select_model([model_info("gpt-6-luna")], "gpt-5.6-luna", allow_verification_model=True)
+
+    assert error.value.category == "model"
+
+
+@pytest.mark.parametrize(
+    "requested_model",
+    ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.5", "gpt-7-anything"],
+)
+def test_explicit_disallowed_models_are_rejected_even_when_available(requested_model) -> None:
     cli = load_module("cli")
     errors = load_module("errors")
 
@@ -117,6 +173,29 @@ def test_explicit_non_luna_models_are_rejected_even_when_available(requested_mod
         cli._select_model([model_info(requested_model)], requested_model)
 
     assert error.value.category == "model"
+
+
+@pytest.mark.parametrize(
+    ("catalog", "requested_model"),
+    [
+        (["gpt-5.6-luna", "gpt-6-luna", "gpt-6-astra"], None),
+        (["gpt-6-astra", "gpt-6-luna", "gpt-5.6-luna"], None),
+        (["gpt-6-luna", "gpt-5.6-luna", "gpt-6-astra"], "gpt-5.6-luna"),
+        (["gpt-5.6-luna", "gpt-6-astra", "gpt-6-luna"], "gpt-5.6-luna"),
+    ],
+)
+def test_explicit_selection_is_independent_of_catalog_order(catalog, requested_model) -> None:
+    cli = load_module("cli")
+
+    expected = requested_model or EXAMPLE_MODEL
+    assert (
+        cli._select_model(
+            [model_info(slug) for slug in catalog],
+            requested_model,
+            allow_verification_model=requested_model == "gpt-5.6-luna",
+        )
+        == expected
+    )
 
 
 @pytest.mark.parametrize(
@@ -151,6 +230,21 @@ def test_live_commands_fail_closed_without_luna_before_any_inference(
     assert "category=model" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("command", ["infer", "smoke"])
+def test_verification_model_is_rejected_by_non_verification_commands(
+    command, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli = load_module("cli")
+    catalog = [model_info("gpt-5.6-luna"), model_info("gpt-6-astra")]
+    client = FakeResponsesClient([], model_catalog=catalog)
+    monkeypatch.setattr(cli, "create_auth_manager", lambda: FakeAuthManager())
+    monkeypatch.setattr(cli, "create_responses_client", lambda: client)
+
+    assert cli.main([command, "--model", "gpt-5.6-luna"]) != 0
+    assert client.requests == []
+    assert "category=model" in capsys.readouterr().err
+
+
 def test_models_command_preserves_catalog_display_order(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -166,6 +260,188 @@ def test_models_command_preserves_catalog_display_order(
         "gpt-5.6-sol\tgpt-5.6-sol",
         "gpt-6-luna\tgpt-6-luna",
     ]
+
+
+def test_demo_tools_records_one_sanitized_verification_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    cli = load_module("cli")
+    model = "gpt-5.6-luna"
+    tool_events = (
+        "response.created",
+        "response.output_item.added",
+        "response.function_call_arguments.delta",
+        "response.function_call_arguments.done",
+        "response.output_item.done",
+        "response.completed",
+    )
+    client = FakeResponsesClient(
+        [
+            summary(
+                "",
+                tool_call("call_context", "research_context_get"),
+                event_types=tool_events,
+                response_id="resp_context",
+                request_id="req_context",
+            ),
+            summary(
+                "",
+                tool_call("call_budget", "research_budget_get"),
+                event_types=tool_events,
+                response_id="resp_budget",
+                request_id="req_budget",
+            ),
+            summary(
+                "Both checks complete.",
+                event_types=(
+                    "response.created",
+                    "response.output_text.delta",
+                    "response.completed",
+                ),
+                response_id="resp_final",
+                request_id="req_final",
+            ),
+        ],
+        model_catalog=[model_info("gpt-6-astra"), model_info(model)],
+    )
+    monkeypatch.setattr(cli, "create_auth_manager", lambda: FakeAuthManager())
+    monkeypatch.setattr(cli, "create_responses_client", lambda: client)
+    evidence_file = tmp_path / "tool-loop.json"
+
+    result = cli.main(["demo-tools", "--model", model, "--evidence", str(evidence_file)])
+
+    assert result == 0
+    assert len(client.requests) == 3
+    assert [request["model"] for request in client.requests] == [model, model, model]
+    output = capsys.readouterr().out
+    assert "Tool order          research_context_get -> research_budget_get" in output
+    assert "Both checks complete." not in output
+    record = json.loads(evidence_file.read_text(encoding="utf-8"))
+    assert record["default_model"] == "gpt-6-luna"
+    assert record["verification_model"] == model
+    assert record["selected_model"] == model
+    assert record["model_catalog"] == ["gpt-6-astra", model]
+    assert record["model_discovery_request_count"] == 1
+    assert record["responses_request_count"] == 3
+    assert record["response_ids"] == ["resp_context", "resp_budget", "resp_final"]
+    assert record["request_ids"] == ["req_context", "req_budget", "req_final"]
+    assert "response.output_item.added" in record["event_types"]
+    assert "response.function_call_arguments.delta" in record["event_types"]
+    assert "response.function_call_arguments.done" in record["event_types"]
+    assert "response.output_item.done" in record["event_types"]
+    assert "response.completed" in record["event_types"]
+    assert record["response_output_item_done_function_call_counts"] == [1, 1, 0]
+    assert record["tool_call_order"] == ["research_context_get", "research_budget_get"]
+    assert record["tool_executions"] == {
+        "research_context_get": {"count": 1, "arguments_exactly_empty_object": [True]},
+        "research_budget_get": {"count": 1, "arguments_exactly_empty_object": [True]},
+    }
+    assert record["duplicate_tool_execution_count"] == 0
+    assert record["function_output_continuations"] == ["PASS", "PASS"]
+    assert record["final_response_present"] is True
+    assert record["usage"] == {"input": 6, "output": 3, "total": 9}
+    assert record["capability_boundary"]["available_local_functions"] == [
+        "research_context_get",
+        "research_budget_get",
+    ]
+    assert record["capability_boundary"]["prohibited_capabilities_exposed"] == []
+    assert record["result"] == "PROCEED"
+    serialized = evidence_file.read_text(encoding="utf-8")
+    assert "Both checks complete." not in serialized
+    assert EXAMPLE_TOKEN not in serialized
+
+
+def test_demo_tools_saves_observed_failure_without_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    cli = load_module("cli")
+    duplicate = tool_call("call_context", "research_context_get")
+    client = FakeResponsesClient(
+        [
+            summary("", tool_call("call_context", "research_context_get")),
+            summary("", duplicate),
+        ],
+        model_catalog=[model_info("gpt-5.6-luna")],
+    )
+    monkeypatch.setattr(cli, "create_auth_manager", lambda: FakeAuthManager())
+    monkeypatch.setattr(cli, "create_responses_client", lambda: client)
+    evidence_file = tmp_path / "tool-loop-failure.json"
+
+    result = cli.main(["demo-tools", "--model", "gpt-5.6-luna", "--evidence", str(evidence_file)])
+
+    assert result != 0
+    assert len(client.requests) == 2
+    record = json.loads(evidence_file.read_text(encoding="utf-8"))
+    assert record["responses_request_count"] == 2
+    assert record["tool_executions"]["research_context_get"]["count"] == 1
+    assert record["duplicate_tool_call_count"] == 1
+    assert record["duplicate_tool_execution_count"] == 0
+    assert record["function_output_continuations"] == ["PASS"]
+    assert record["final_response_present"] is False
+    assert record["result"] == "PROCEED_WITH_GAPS"
+    assert record["failure_cause"] == "duplicate_tool_call"
+    assert EXAMPLE_TOKEN not in evidence_file.read_text(encoding="utf-8")
+    capsys.readouterr()
+
+
+def test_demo_tools_blocks_missing_verification_model_before_responses(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    cli = load_module("cli")
+    client = FakeResponsesClient(
+        [], model_catalog=[model_info("gpt-6-astra"), model_info("gpt-5.6-sol")]
+    )
+    monkeypatch.setattr(cli, "create_auth_manager", lambda: FakeAuthManager())
+    monkeypatch.setattr(cli, "create_responses_client", lambda: client)
+    evidence_file = tmp_path / "model-unavailable.json"
+
+    result = cli.main(["demo-tools", "--model", "gpt-5.6-luna", "--evidence", str(evidence_file)])
+
+    assert result != 0
+    assert client.requests == []
+    record = json.loads(evidence_file.read_text(encoding="utf-8"))
+    assert record["selected_model"] is None
+    assert record["responses_request_count"] == 0
+    assert record["result"] == "BLOCKED_VERIFICATION_MODEL_UNAVAILABLE"
+    capsys.readouterr()
+
+
+def test_demo_tools_evidence_keeps_only_allowlisted_event_types_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    cli = load_module("cli")
+    errors = load_module("errors")
+    client = FakeResponsesClient([], model_catalog=[model_info("gpt-5.6-luna")])
+
+    def fail_during_stream(access_token, model, input_items, tools=None):
+        raise errors.ResponsesError(
+            "Safe transport failure.",
+            category="transport",
+            observed_event_types=("response.created", "secret_payload"),
+        )
+
+    client.stream_response = fail_during_stream
+    monkeypatch.setattr(cli, "create_auth_manager", lambda: FakeAuthManager())
+    monkeypatch.setattr(cli, "create_responses_client", lambda: client)
+    evidence_file = tmp_path / "partial-stream.json"
+
+    result = cli.main(["demo-tools", "--model", "gpt-5.6-luna", "--evidence", str(evidence_file)])
+
+    assert result != 0
+    record = json.loads(evidence_file.read_text(encoding="utf-8"))
+    assert record["responses_request_count"] == 1
+    assert record["event_types"] == ["response.created"]
+    assert record["failure_category"] == "transport"
+    assert "secret_payload" not in evidence_file.read_text(encoding="utf-8")
+    capsys.readouterr()
 
 
 def test_auth_status_is_safe_and_does_not_create_responses_client(

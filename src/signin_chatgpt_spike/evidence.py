@@ -65,6 +65,178 @@ class SmokeSummary:
     unknown_tool_denial: bool
 
 
+@dataclass(frozen=True)
+class ToolLoopEvidenceSummary:
+    timestamp_utc: str
+    git_sha_before_evidence_commit: str
+    default_model: str
+    verification_model: str
+    model_catalog: tuple[str, ...]
+    selected_model: str | None
+    model_discovery_request_count: int
+    responses_request_count: int
+    responses_request_models: tuple[str, ...]
+    response_ids: tuple[str, ...]
+    request_ids: tuple[str, ...]
+    event_types: tuple[str, ...]
+    response_output_item_done_function_call_counts: tuple[int, ...]
+    observed_tool_call_order: tuple[str, ...]
+    tool_call_order: tuple[str, ...]
+    context_arguments_exactly_empty_object: tuple[bool, ...]
+    budget_arguments_exactly_empty_object: tuple[bool, ...]
+    context_execution_count: int
+    budget_execution_count: int
+    duplicate_tool_call_count: int
+    duplicate_tool_execution_count: int
+    function_output_continuations: tuple[bool, ...]
+    final_response_present: bool
+    usage_input_tokens: int | None
+    usage_output_tokens: int | None
+    usage_total_tokens: int | None
+    elapsed_seconds: float
+    authenticated: bool
+    refresh_available: bool
+    plan_usage_enabled: bool
+    result: str
+    failure_category: str
+    failure_cause: str
+
+
+def build_tool_loop_evidence(summary: ToolLoopEvidenceSummary) -> dict[str, object]:
+    catalog = _safe_identifiers(summary.model_catalog, SAFE_MODEL_ID)
+    selected_model = summary.selected_model
+    if (
+        not isinstance(selected_model, str)
+        or selected_model not in catalog
+        or selected_model not in {"gpt-6-luna", "gpt-5.6-luna"}
+        or not _safe_model_id(selected_model)
+    ):
+        selected_model = None
+
+    safe_result = (
+        summary.result
+        if summary.result
+        in {
+            "PROCEED",
+            "PROCEED_WITH_GAPS",
+            "BLOCKED_MODEL_UNAVAILABLE",
+            "BLOCKED_VERIFICATION_MODEL_UNAVAILABLE",
+        }
+        else "UNKNOWN"
+    )
+    safe_failure_category = (
+        summary.failure_category
+        if summary.failure_category
+        in {
+            "authentication",
+            "transport",
+            "rate_limit",
+            "model",
+            "tool_validation",
+            "tool_execution",
+            "timeout",
+            "unknown",
+        }
+        else "NONE"
+    )
+    safe_failure_cause = (
+        summary.failure_cause
+        if summary.failure_cause
+        in {
+            "output_item_extraction",
+            "namespace_function_name_parsing",
+            "arguments_parsing",
+            "dispatcher",
+            "function_call_output",
+            "continuation_history",
+            "api_validation",
+            "model_behavior",
+            "preview_protocol_mismatch",
+            "duplicate_tool_call",
+            "unknown",
+            "NONE",
+        }
+        else "unknown"
+    )
+    context_arguments = _safe_boolean_values(summary.context_arguments_exactly_empty_object)
+    budget_arguments = _safe_boolean_values(summary.budget_arguments_exactly_empty_object)
+    continuations = _safe_boolean_values(summary.function_output_continuations)
+    observed_order = _safe_tool_order(summary.observed_tool_call_order)
+    tool_order = _safe_tool_order(summary.tool_call_order)
+
+    return {
+        "schema_version": 1,
+        "timestamp_utc": _safe_timestamp(summary.timestamp_utc),
+        "git_sha_before_evidence_commit": summary.git_sha_before_evidence_commit.lower()
+        if isinstance(summary.git_sha_before_evidence_commit, str)
+        and SAFE_GIT_SHA.fullmatch(summary.git_sha_before_evidence_commit)
+        else "UNKNOWN",
+        "default_model": summary.default_model
+        if _safe_model_id(summary.default_model)
+        else "UNKNOWN",
+        "verification_model": summary.verification_model
+        if _safe_model_id(summary.verification_model)
+        else "UNKNOWN",
+        "authentication": {
+            "authenticated": bool(summary.authenticated),
+            "refresh_available": bool(summary.refresh_available),
+            "plan_usage_enabled": bool(summary.plan_usage_enabled),
+        },
+        "model_discovery_request_count": _safe_count(summary.model_discovery_request_count),
+        "model_catalog": catalog,
+        "selected_model": selected_model,
+        "responses_request_count": _safe_count(summary.responses_request_count),
+        "responses_request_models": [
+            model for model in summary.responses_request_models if _safe_model_id(model)
+        ],
+        "response_ids": _safe_identifiers(summary.response_ids, SAFE_RESPONSE_ID),
+        "request_ids": _safe_identifiers(summary.request_ids, SAFE_REQUEST_ID),
+        "event_types": [event for event in summary.event_types if event in ALLOWED_EVENT_TYPES],
+        "response_output_item_done_function_call_counts": [
+            _safe_count(count) for count in summary.response_output_item_done_function_call_counts
+        ],
+        "observed_tool_call_order": observed_order,
+        "tool_call_order": tool_order,
+        "tool_executions": {
+            "research_context_get": {
+                "count": _safe_count(summary.context_execution_count),
+                "arguments_exactly_empty_object": context_arguments,
+            },
+            "research_budget_get": {
+                "count": _safe_count(summary.budget_execution_count),
+                "arguments_exactly_empty_object": budget_arguments,
+            },
+        },
+        "duplicate_tool_call_count": _safe_count(summary.duplicate_tool_call_count),
+        "duplicate_tool_execution_count": _safe_count(summary.duplicate_tool_execution_count),
+        "function_output_continuations": ["PASS" if value else "FAIL" for value in continuations],
+        "final_response_present": bool(summary.final_response_present),
+        "usage": {
+            "input": _safe_count(summary.usage_input_tokens),
+            "output": _safe_count(summary.usage_output_tokens),
+            "total": _safe_count(summary.usage_total_tokens),
+        },
+        "elapsed_seconds": _safe_elapsed(summary.elapsed_seconds),
+        "capability_boundary": {
+            "available_local_functions": ["research_context_get", "research_budget_get"],
+            "prohibited_capabilities_exposed": [],
+            "changed": False,
+        },
+        "failure_category": safe_failure_category,
+        "failure_cause": safe_failure_cause,
+        "secret_exposure": "NONE",
+        "result": safe_result,
+        "limitations": [
+            "Only the two fixed local research functions were available to the model.",
+            (
+                "Only event type names are retained from incomplete streams; "
+                "response payloads are omitted."
+            ),
+            "ChatGPT plan usage accounting is not exposed by this spike.",
+        ],
+    }
+
+
 def build_evidence(summary: SmokeSummary) -> dict[str, object]:
     available_models = _safe_identifiers(summary.available_models, SAFE_MODEL_ID)
     selected_model = (
@@ -170,6 +342,10 @@ def _looks_sensitive(value: str) -> bool:
 
 def _safe_tool_order(values: tuple[str, ...]) -> list[str]:
     return [name for name in values if name in ALLOWED_TOOL_NAMES]
+
+
+def _safe_boolean_values(values: tuple[bool, ...]) -> list[bool]:
+    return [value for value in values if type(value) is bool]
 
 
 def _safe_count(value: int | None) -> int | None:

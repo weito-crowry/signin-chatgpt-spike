@@ -198,6 +198,7 @@ def test_streamed_function_call_item_is_preserved_from_final_stream_event(
     result = client.stream_response(EXAMPLE_ACCESS_TOKEN, EXAMPLE_MODEL, [], tools=[])
 
     assert result.output_items == (function_call,)
+    assert result.streamed_function_call_item_done_count == 1
 
 
 @pytest.mark.parametrize(
@@ -266,6 +267,11 @@ def test_failed_and_incomplete_events_never_report_success() -> None:
         with pytest.raises(client_module.ResponsesError) as raised:
             client.stream_response(EXAMPLE_ACCESS_TOKEN, EXAMPLE_MODEL, [])
         assert raised.value.category == category
+        if event["type"] == "response.failed":
+            assert raised.value.observed_event_types == (
+                "response.created",
+                "response.failed",
+            )
 
 
 def test_malformed_or_interrupted_sse_is_not_returned_as_success() -> None:

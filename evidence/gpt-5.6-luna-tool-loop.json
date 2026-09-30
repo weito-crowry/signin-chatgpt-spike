@@ -1,0 +1,159 @@
+{
+  "authentication": {
+    "authenticated": true,
+    "plan_usage_enabled": true,
+    "refresh_available": true
+  },
+  "post_logout": {
+    "authenticated": false,
+    "host_id_preserved": true,
+    "local_token_file_present": false,
+    "plan_usage_enabled": false,
+    "refresh_available": false,
+    "registration_metadata_preserved": true,
+    "remote_refresh_token_revocation": "CONFIRMED"
+  },
+  "capability_boundary": {
+    "available_local_functions": [
+      "research_context_get",
+      "research_budget_get"
+    ],
+    "changed": false,
+    "prohibited_capabilities_exposed": []
+  },
+  "default_model": "gpt-6-luna",
+  "duplicate_tool_call_count": 0,
+  "duplicate_tool_execution_count": 0,
+  "elapsed_seconds": 12.459,
+  "event_types": [
+    "response.created",
+    "response.in_progress",
+    "response.output_item.added",
+    "response.output_item.done",
+    "response.output_item.added",
+    "response.function_call_arguments.delta",
+    "response.function_call_arguments.done",
+    "response.output_item.done",
+    "response.completed",
+    "response.created",
+    "response.in_progress",
+    "response.output_item.added",
+    "response.function_call_arguments.delta",
+    "response.function_call_arguments.done",
+    "response.output_item.done",
+    "response.completed",
+    "response.created",
+    "response.in_progress",
+    "response.output_item.added",
+    "response.content_part.added",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.done",
+    "response.content_part.done",
+    "response.output_item.done",
+    "response.completed"
+  ],
+  "failure_category": "NONE",
+  "failure_cause": "NONE",
+  "final_response_present": true,
+  "function_output_continuations": [
+    "PASS",
+    "PASS"
+  ],
+  "git_sha_before_evidence_commit": "0f014e46cef5cfc260cc16e9d48b45fbf0454564",
+  "limitations": [
+    "Only the two fixed local research functions were available to the model.",
+    "Only event type names are retained from incomplete streams; response payloads are omitted.",
+    "ChatGPT plan usage accounting is not exposed by this spike."
+  ],
+  "model_catalog": [
+    "gpt-6-astra",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-5.5"
+  ],
+  "model_discovery_request_count": 1,
+  "observed_tool_call_order": [
+    "research_context_get",
+    "research_budget_get"
+  ],
+  "request_ids": [],
+  "response_ids": [
+    "resp_071a203dc1a24041016abd03bb1e1087d0829e07700fe2542f",
+    "resp_071a203dc1a24041016abd03be20b487d0b3ac9ff2d1b08492",
+    "resp_071a203dc1a24041016abd03c09cec87d08ff217a5b719d92a"
+  ],
+  "response_output_item_done_function_call_counts": [
+    1,
+    1,
+    0
+  ],
+  "responses_request_count": 3,
+  "responses_request_models": [
+    "gpt-5.6-luna",
+    "gpt-5.6-luna",
+    "gpt-5.6-luna"
+  ],
+  "result": "PROCEED",
+  "schema_version": 1,
+  "secret_exposure": "NONE",
+  "selected_model": "gpt-5.6-luna",
+  "timestamp_utc": "2026-09-30T12:42:43.719047Z",
+  "tool_call_order": [
+    "research_context_get",
+    "research_budget_get"
+  ],
+  "tool_executions": {
+    "research_budget_get": {
+      "arguments_exactly_empty_object": [
+        true
+      ],
+      "count": 1
+    },
+    "research_context_get": {
+      "arguments_exactly_empty_object": [
+        true
+      ],
+      "count": 1
+    }
+  },
+  "usage": {
+    "input": 411,
+    "output": 86,
+    "total": 497
+  },
+  "verification_model": "gpt-5.6-luna"
+}
