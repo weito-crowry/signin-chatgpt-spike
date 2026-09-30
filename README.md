@@ -172,6 +172,10 @@ Plan usage accounting and rate-limit metadata remain `UNKNOWN` because this smok
 
 Final runtime decision: **PROCEED_WITH_GAPS**. Authentication, discovery, inference, and streaming worked. Before considering FX-LLM adoption, perform a separately authorized live smoke against the event-item fix, confirm single and ordered multi-tool continuation, and assess the preview route's stability and usage limits.
 
+### GPT-6 Luna live tool-loop recheck (2026-09-30)
+
+Sign-in succeeded with refresh and plan usage enabled, but the account-visible catalog did not contain the exact `gpt-6-luna` slug. Per the stop rule, this run made zero Responses requests and executed zero local tools; its result is **BLOCKED_MODEL_UNAVAILABLE**. Logout removed the local token set, remote refresh-token revocation was confirmed, host ID and registration metadata remain present, and the final auth status is unauthenticated. The ordered live tool loop remains unverified. See the separate sanitized record at [`evidence/gpt-6-luna-tool-loop.json`](evidence/gpt-6-luna-tool-loop.json).
+
 ## Why this exists
 
 This experiment informs whether a restricted Responses-based research runtime is worth designing separately for FX-LLM. It is not intended to be copied directly into that production codebase.

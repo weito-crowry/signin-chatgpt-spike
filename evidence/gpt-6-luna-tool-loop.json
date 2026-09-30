@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "timestamp_utc": "2026-09-30T11:54:16Z",
+  "git_sha": "e3b2459a527496f1c6aff0e03858819ecfbab771",
+  "authentication": {
+    "login": "PASS",
+    "authenticated": true,
+    "refresh_available": true,
+    "plan_usage_enabled": true
+  },
+  "model_catalog": {
+    "request_count": 1,
+    "available_models": [
+      "gpt-6-astra",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.5"
+    ],
+    "gpt-6-luna_present": false
+  },
+  "selected_model": null,
+  "responses_request_count": 0,
+  "response_ids": [],
+  "usage": "NOT_AVAILABLE_NO_RESPONSES_REQUEST",
+  "streaming_event_types": [],
+  "event_checks": "NOT_RUN_MODEL_UNAVAILABLE",
+  "tool_loop": {
+    "attempted": false,
+    "tool_call_order": [],
+    "research_context_get_execution_count": 0,
+    "research_budget_get_execution_count": 0,
+    "duplicate_execution_count": 0,
+    "first_function_output_continuation": "NOT_RUN",
+    "second_function_output_continuation": "NOT_RUN",
+    "final_response_present": false
+  },
+  "elapsed_seconds": 4.4,
+  "elapsed_scope": "Single models CLI invocation including process startup and catalog request; authentication and logout excluded.",
+  "capability_boundary": {
+    "available_local_functions": [
+      "research_context_get",
+      "research_budget_get"
+    ],
+    "prohibited_capabilities_exposed": [],
+    "changed": false
+  },
+  "logout": {
+    "local_tokens_removed": true,
+    "remote_refresh_token_revocation": "PASS",
+    "host_id_preserved": true,
+    "registration_metadata_preserved": true,
+    "final_authenticated": false
+  },
+  "secret_exposure": "NONE",
+  "result": "BLOCKED_MODEL_UNAVAILABLE",
+  "limitations": [
+    "The account-visible model catalog did not contain the exact requested slug gpt-6-luna.",
+    "No Responses API request or local research function execution was made.",
+    "Tool calling, continuation, streaming events, usage, and final response were not observed in this run."
+  ]
+}
