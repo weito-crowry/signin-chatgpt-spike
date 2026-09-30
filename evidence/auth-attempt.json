@@ -1,9 +1,9 @@
 {
   "record_type": "sanitized_live_auth_attempt",
-  "timestamp_utc": "2026-09-30T11:03:47Z",
+  "timestamp_utc": "2026-09-30T11:13:27Z",
   "operating_system": "Windows 10",
   "python_version": "3.11.9",
-  "git_sha": "UNKNOWN",
+  "git_sha": "0462cd164cbb8873418673d5f01f1956e407b3c9",
   "authentication": "BLOCKED",
   "attempts": [
     "timeout_before_browser_callback",
