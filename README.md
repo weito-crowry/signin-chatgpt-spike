@@ -194,6 +194,10 @@ The formal/default target remains `gpt-6-luna`; `gpt-5.6-luna` is allowed only a
 
 Harness viability: **PROCEED**. GPT-6 Luna availability: **BLOCKED_MODEL_UNAVAILABLE**.
 
+### Live refresh rotation verification (2026-09-30)
+
+A single-session live check confirmed that access-token expiry triggers the refresh grant without browser sign-in, both access and refresh tokens rotate, the new token set is persisted through DPAPI, and the refreshed access token retrieves a non-empty account model catalog. The expiry condition was forced only in an in-memory wrapper; the persisted expiry was not changed. Multi-process refresh serialization was outside this check and is planned for verification in FX-LLM. See the sanitized record at [`evidence/live-refresh-rotation-retry-1.json`](evidence/live-refresh-rotation-retry-1.json).
+
 ## Why this exists
 
 This experiment informs whether a restricted Responses-based research runtime is worth designing separately for FX-LLM. It is not intended to be copied directly into that production codebase.
