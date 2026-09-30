@@ -147,7 +147,7 @@
 - [x] **Step 2: Run offline verification** with `python -m pytest`, `ruff check .`, and every README setup/demo command that does not require account consent; confirm default tests cannot issue real API calls.
 - [x] **Step 3: Attempt only the explicit minimum live checks** after `auth login`; the browser callback timed out after token storage was corrected, so model discovery and Responses requests were not run. Record those observations as `NOT_RUN`/`UNKNOWN`; unknown-tool denial is covered by deterministic offline tests and spent no inference request.
 - [x] **Step 4: Review secret safety** with `git status`, `git diff`, `git diff --cached`, searches for bearer/token/auth-code patterns, and inspection of all tracked/staged files; confirm OS credentials, `.env`, caches, and private evidence are untracked/ignored. Three credential-shaped scanner matches were all synthetic fixtures with the explicit `EXAMPLE_ONLY_NOT_A_REAL_TOKEN` marker; diagnostic OS credential entries were removed.
-- [ ] **Step 5: Make the initial public commit** after all required checks, push `spike/reference-implementation` to `origin`, verify remote SHA, and stop without merge, PR creation, tag, or release.
+- [x] **Step 5: Make the initial public commit** after all required checks, push `spike/reference-implementation` to `origin`, verify remote SHA, and stop without merge, PR creation, tag, or release. The source commit and sanitized-evidence follow-up are published; the remote SHA matched local HEAD before this plan-status update.
 
 ## Self-Review
 
