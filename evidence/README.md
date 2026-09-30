@@ -4,4 +4,6 @@
 
 `auth-attempt.json` records a live sign-in attempt that stopped before any model-list or Responses inference request. It contains only coarse stage results, environment versions, the code revision under evaluation, and the capability allowlist. It includes no registration IDs, subject digests, token lengths, auth response fields, or browser details.
 
+`smoke-result.json` records a later successful sign-in and model discovery, a successful streamed text response, and a failed live tool-loop attempt. Function-call argument event types were observed, but no local tool call was dispatched in that run. Its result describes only the requests and outcomes actually observed; the offline event-assembly regression is not live smoke evidence.
+
 It does not store OAuth tokens, authorization codes, account identifiers, request headers, cookies, raw authentication/API payloads, or model response text. Unit tests and fake credentials are not live evidence. Unknown observations remain `UNKNOWN`.

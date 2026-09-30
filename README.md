@@ -146,6 +146,8 @@ python -m signin_chatgpt_spike.cli smoke --evidence evidence/smoke-result.json
 
 This smoke sequence makes six streamed Responses requests in the expected path: one simple request, two requests for the single-tool continuation, and three requests for the two-tool continuation. It makes one model-list request. Unknown-tool denial is checked locally and does not spend an inference request. No retries are performed. `auth logout` can be run afterward to revoke and clear the local token set. Add `--model "gpt-6-luna"` only after confirming that slug appears in the `models` output.
 
+The smoke command returns a nonzero exit code if either tool loop does not complete. A model may emit tool-call events while a preview response omits items from the completed response body; the client also reads `response.output_item.done` so these completed calls are available to the local dispatcher. A failed smoke is recorded as observed and is not retried automatically.
+
 ## Errors and preview limitations
 
 Safe error categories are `authentication`, `transport`, `rate_limit`, `model`, `tool_validation`, `tool_execution`, `timeout`, and `unknown`. CLI errors never include upstream response bodies or authorization data.
@@ -156,11 +158,17 @@ This spike has no automatic retry policy, persistent conversation database, tool
 
 ## Results
 
-Local verification on 2026-09-30 used Windows 10 and Python 3.11.9. The offline suite passed 53 tests, including OAuth validation with fake responses, DPAPI roundtrip with a fake payload, the explicit tool allowlist, denial of unknown tools, and Responses request-contract checks. Ruff checks passed.
+Local verification on 2026-09-30 used Windows 10 and Python 3.11.9. The offline suite passed 55 tests, including OAuth validation with fake responses, DPAPI roundtrip with a fake payload, the explicit tool allowlist, denial of unknown tools, Responses request-contract checks, and regressions for streamed completed output items. Ruff checks passed.
 
-The live sign-in did not produce a persisted local token set. One attempt timed out before the browser callback, one reached protected credential storage and failed, and a post-fix attempt timed out before the callback. The final local auth status was unauthenticated. Local logout removed the absent token set and retained registration metadata and host identity; remote revocation is `UNKNOWN` because no persisted refresh token was available. No model-list or Responses inference requests were sent, so model discovery, streaming, inference, and live tool continuation remain unverified. The safe attempt summary is [`evidence/auth-attempt.json`](evidence/auth-attempt.json); no `smoke-result.json` is claimed.
+The browser sign-in succeeded. The CLI reported `authenticated: true`, `refresh_available: true`, and `plan_usage_enabled: true`; it printed no token values. Logout then removed the token set and remote refresh-token revocation was confirmed. Stable host identity and registration metadata remain stored.
 
-Final runtime decision: **BLOCKED** pending a completed sign-in and the explicit live smoke. No result is inferred from unit tests.
+Model discovery succeeded and returned these account-visible IDs: `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-5.5`. `gpt-6-luna` was not listed. The smoke selected `gpt-6-astra`. Its fixed inference returned `SIGNIN_CHATGPT_SPIKE_OK` over streaming. The simple response used 27 tokens (16 input, 11 output); the smoke total across three Responses requests was 209 tokens. Response IDs were captured in the sanitized evidence, while request ID and rate-limit metadata were not available.
+
+The live smoke observed function-call argument stream events, but the completed response body did not deliver a function-call item to the local tool loop. Therefore neither local tool was dispatched and both tool-loop checks failed. The client now supplements the completed body's output with final items from `response.output_item.done`, following the documented streaming event contract. The new offline regression passed, but the live smoke was not repeated; live single-tool continuation and the ordered two-tool loop remain unverified. The unknown-tool denial was a local allowlist check and passed. See the sanitized live record at [`evidence/smoke-result.json`](evidence/smoke-result.json). The earlier authentication attempts are retained in [`evidence/auth-attempt.json`](evidence/auth-attempt.json).
+
+Plan usage accounting and rate-limit metadata remain `UNKNOWN` because this smoke did not expose those values. The account-visible catalog did not include `gpt-6-luna`.
+
+Final runtime decision: **PROCEED_WITH_GAPS**. Authentication, discovery, inference, and streaming worked. Before considering FX-LLM adoption, perform a separately authorized live smoke against the event-item fix, confirm single and ordered multi-tool continuation, and assess the preview route's stability and usage limits.
 
 ## Why this exists
 
@@ -171,5 +179,6 @@ This experiment informs whether a restricted Responses-based research runtime is
 - [Sign in with ChatGPT: registration and sessions](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions)
 - [Sign in with ChatGPT: models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)
 - [Sign in with ChatGPT: preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)
+- [Responses API function calling and streaming events](https://developers.openai.com/api/docs/guides/function-calling)
 - [Microsoft DPAPI: CryptProtectData](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata)
 - [Microsoft Credential Manager: CREDENTIALW limits](https://learn.microsoft.com/en-us/windows/win32/api/wincred/ns-wincred-credentialw)

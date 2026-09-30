@@ -1,0 +1,80 @@
+{
+  "authentication": "PASS",
+  "available_models": [
+    "gpt-6-astra",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-5.5"
+  ],
+  "capabilities": [
+    "Responses inference",
+    "research_context_get",
+    "research_budget_get"
+  ],
+  "elapsed_seconds": 11.851,
+  "event_types": [
+    "response.created",
+    "response.in_progress",
+    "response.output_item.added",
+    "response.content_part.added",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.done",
+    "response.content_part.done",
+    "response.output_item.done",
+    "response.completed",
+    "response.created",
+    "response.in_progress",
+    "response.output_item.added",
+    "response.function_call_arguments.delta",
+    "response.function_call_arguments.done",
+    "response.output_item.done",
+    "response.completed",
+    "response.created",
+    "response.in_progress",
+    "response.output_item.added",
+    "response.function_call_arguments.delta",
+    "response.function_call_arguments.done",
+    "response.output_item.done",
+    "response.completed"
+  ],
+  "git_sha": "d867daf26f234a5a01cd48c836a349a2381475e3",
+  "known_limitations": [
+    "ChatGPT plan usage accounting is not exposed by this spike.",
+    "Only the two local mock research tools are available.",
+    "Responses preview behavior can change; consult the official documentation."
+  ],
+  "model_discovery": "PASS",
+  "operating_system": "Windows 10",
+  "plan_usage_accounting": "UNKNOWN",
+  "python_version": "3.11.9",
+  "rate_limit_metadata": {},
+  "request_ids": [],
+  "response_ids": [
+    "resp_067479ff66ca76f8016abcf065572887d094e59a614cf0e043",
+    "resp_0bacc9fbef23f760016abcf067ca3087d0ba130305245ed777",
+    "resp_0c5d668dfa1b4ebf016abcf06ad6fc87d08af53e8fde0b5a34"
+  ],
+  "selected_model": "gpt-6-astra",
+  "simple_response": "PASS",
+  "streaming": "PASS",
+  "timestamp_utc": "2026-09-30T11:20:12.636722Z",
+  "tool_calls": {
+    "multi": [],
+    "multi_result": "FAIL",
+    "single": [],
+    "single_result": "FAIL",
+    "unknown_tool_denial": true
+  },
+  "usage": {
+    "input": 166,
+    "output": 43,
+    "total": 209
+  }
+}

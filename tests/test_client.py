@@ -150,6 +150,57 @@ def test_response_request_uses_only_preview_supported_fields() -> None:
 
 
 @pytest.mark.parametrize(
+    "completed_output",
+    [[], [{"type": "reasoning", "summary": []}]],
+)
+def test_streamed_function_call_item_is_preserved_from_final_stream_event(
+    completed_output: list[dict[str, object]],
+) -> None:
+    client_module = load_module("client")
+    function_call = {
+        "type": "function_call",
+        "id": "fc_EXAMPLE_ONLY_NOT_A_REAL_ID",
+        "call_id": "call_EXAMPLE_ONLY_NOT_A_REAL_ID",
+        "name": "research_context_get",
+        "arguments": "{}",
+    }
+    client = client_module.ResponsesClient(
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    200,
+                    content=sse(
+                        {
+                            "type": "response.output_item.added",
+                            "output_index": 0,
+                            "item": {**function_call, "arguments": ""},
+                        },
+                        {
+                            "type": "response.function_call_arguments.done",
+                            "output_index": 0,
+                            "arguments": "{}",
+                        },
+                        {
+                            "type": "response.output_item.done",
+                            "output_index": 0,
+                            "item": function_call,
+                        },
+                        {
+                            "type": "response.completed",
+                            "response": completed_response(output=completed_output),
+                        },
+                    ),
+                )
+            )
+        )
+    )
+
+    result = client.stream_response(EXAMPLE_ACCESS_TOKEN, EXAMPLE_MODEL, [], tools=[])
+
+    assert result.output_items == (function_call,)
+
+
+@pytest.mark.parametrize(
     ("status_code", "error_body", "category"),
     [
         (401, {"error": {"message": "EXAMPLE_ONLY_NOT_A_REAL_SECRET"}}, "authentication"),

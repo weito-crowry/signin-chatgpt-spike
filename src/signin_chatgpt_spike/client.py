@@ -97,6 +97,7 @@ class ResponsesClient:
         headers = {"Authorization": f"Bearer {access_token}"}
         event_types: list[str] = []
         text_parts: list[str] = []
+        streamed_output_items: dict[int, dict[str, Any]] = {}
         completed: dict[str, Any] | None = None
 
         try:
@@ -119,6 +120,12 @@ class ResponsesClient:
                         if not isinstance(delta, str):
                             raise ResponsesError("OpenAI sent an invalid text delta.")
                         text_parts.append(delta)
+                    elif event_type == "response.output_item.done":
+                        output_index = event.get("output_index")
+                        item = event.get("item")
+                        if type(output_index) is not int or not isinstance(item, dict):
+                            raise ResponsesError("OpenAI sent an invalid completed output item.")
+                        streamed_output_items[output_index] = item
                     elif event_type == "response.failed":
                         raise ResponsesError(
                             "The Responses request failed.",
@@ -153,6 +160,11 @@ class ResponsesClient:
             not isinstance(item, dict) for item in output_items
         ):
             raise ResponsesError("OpenAI sent invalid output items.")
+        merged_output_items = dict(enumerate(output_items))
+        # Final stream items remain authoritative when the preview body differs.
+        for output_index, item in streamed_output_items.items():
+            merged_output_items[output_index] = item
+        output_items = [merged_output_items[index] for index in sorted(merged_output_items)]
         usage_data = completed.get("usage")
         if not isinstance(usage_data, dict):
             usage_data = {}
