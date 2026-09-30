@@ -1,0 +1,46 @@
+{
+  "record_type": "sanitized_live_auth_attempt",
+  "timestamp_utc": "2026-09-30T11:03:47Z",
+  "operating_system": "Windows 10",
+  "python_version": "3.11.9",
+  "git_sha": "UNKNOWN",
+  "authentication": "BLOCKED",
+  "attempts": [
+    "timeout_before_browser_callback",
+    "protected_credential_write_failure",
+    "timeout_before_browser_callback"
+  ],
+  "final_local_token_status": "ABSENT",
+  "registration_metadata": "PRESENT",
+  "host_identity": "PRESENT",
+  "local_logout": "PASS; token set absent/deleted and identity metadata retained",
+  "remote_revocation": "UNKNOWN; no persisted refresh token was available",
+  "model_discovery": "NOT_RUN",
+  "available_models": "UNKNOWN",
+  "selected_model": "UNKNOWN",
+  "simple_responses_inference": "NOT_RUN",
+  "streaming": "NOT_RUN",
+  "single_tool_live_call": "NOT_RUN",
+  "multi_tool_live_call": "NOT_RUN",
+  "responses_api_request_count": 0,
+  "usage": "UNKNOWN",
+  "rate_limit_metadata": "UNKNOWN",
+  "unknown_tool_denial_offline_tests": "PASS",
+  "offline_test_count": 53,
+  "credential_storage": {
+    "credential_manager_fake_write_delete": "PASS",
+    "token_store": "DPAPI current-user protection; fake-payload roundtrip PASS",
+    "plaintext_token_file_check": "PASS"
+  },
+  "capabilities": [
+    "Responses inference",
+    "research_context_get",
+    "research_budget_get"
+  ],
+  "decision": "BLOCKED",
+  "limitations": [
+    "The live sign-in did not leave a persisted token set.",
+    "No model-list or Responses inference request was sent.",
+    "Model availability, streaming, and live tool continuation are unverified."
+  ]
+}
